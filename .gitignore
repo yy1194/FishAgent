@@ -1,0 +1,6 @@
+.env
+FISHCLAW_IMPROVEMENTS.txt
+PROJECT_OVERVIEW.md
+.fishclaw
+src/fishclaw/__pycache__/
+src/fishclaw.egg-info/

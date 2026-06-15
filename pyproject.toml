@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fishclaw"
+version = "0.1.0"
+description = "A lightweight MultiAgent workflow with context and harness engineering."
+requires-python = ">=3.12"
+dependencies = [
+    "langchain-core>=0.3",
+    "langchain-openai>=0.3",
+    "langgraph>=0.2",
+    "python-dotenv>=1.0",
+    "rich>=13.0",
+    "tavily-python>=0.5",
+    "typer>=0.12",
+]
+
+[project.scripts]
+fishclaw = "fishclaw.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
