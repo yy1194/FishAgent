@@ -11,6 +11,7 @@ from typing import Any, Iterator
 from langchain_core.messages import BaseMessage, message_to_dict
 
 from fishclaw.state import FishRuntime, FishState
+from fishclaw.state.reducers import merge_sources as merge_source_lists
 
 
 MAX_MEMORY_TEXT = 1600
@@ -134,14 +135,7 @@ def format_memory(memory: dict[str, Any]) -> str:
 
 def merge_sources(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """按 URL 去重合并来源列表。"""
-    seen: set[str] = set()
     merged: list[dict[str, Any]] = []
     for group in groups:
-        for source in group:
-            url = str(source.get("url", ""))
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            merged.append(source)
+        merged = merge_source_lists(merged, group)
     return merged
-

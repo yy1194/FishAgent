@@ -48,15 +48,26 @@ def test_context_route_goes_planner_by_default(tmp_path: Path) -> None:
     assert context_route(state) == "planner"
 
 
-def test_merge_update_appends_messages_and_overwrites_other_fields() -> None:
+def test_merge_update_uses_reducers_and_overwrites_plain_fields() -> None:
     state: FishState = {
         "messages": [HumanMessage(content="old")],
         "planner_rounds": 1,
+        "search_notes": "old note",
+        "sources": [{"url": "https://example.com/a", "title": "old"}],
+        "handoffs": [{"to": "searchAgent", "instruction": "old", "summary": "old"}],
+        "metadata": {"existing": True},
     }
     event = {
         "planner": {
             "messages": [AIMessage(content="new")],
             "planner_rounds": 2,
+            "search_notes": "new note",
+            "sources": [
+                {"url": "https://example.com/a", "title": "duplicate"},
+                {"url": "https://example.com/b", "title": "new"},
+            ],
+            "handoffs": [{"to": "codeAgent", "instruction": "new", "summary": "new"}],
+            "metadata": {"last_planner_response": "ok"},
         }
     }
 
@@ -64,6 +75,10 @@ def test_merge_update_appends_messages_and_overwrites_other_fields() -> None:
 
     assert [message.content for message in state["messages"]] == ["old", "new"]
     assert state["planner_rounds"] == 2
+    assert state["search_notes"] == "old note\n\nnew note"
+    assert [source["url"] for source in state["sources"]] == ["https://example.com/a", "https://example.com/b"]
+    assert [handoff["instruction"] for handoff in state["handoffs"]] == ["old", "new"]
+    assert state["metadata"] == {"existing": True, "last_planner_response": "ok"}
 
 
 def test_merge_update_can_remove_all_messages() -> None:
@@ -103,6 +118,10 @@ def test_restore_saved_state_rehydrates_messages(tmp_path: Path) -> None:
     assert "updated_at" not in state
     assert state["sources"] == []
     assert state["handoffs"] == []
+    assert state["search_notes"] == ""
+    assert state["code_summary"] == ""
+    assert state["metadata"] == {}
+    assert state["errors"] == []
 
 
 def test_message_text_serializes_non_string_content() -> None:

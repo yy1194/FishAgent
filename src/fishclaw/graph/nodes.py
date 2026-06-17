@@ -26,13 +26,14 @@ def planner_node(state: FishState) -> dict[str, Any]:
     """planner 节点：让模型选择 SearchAgentTool 或 CodeAgentTool。"""
     writer = _writer()
     working: FishState = {**state}
+    state_updates: FishState = {}
     memory = build_memory(working)
     recent_messages = "\n\n".join(
         short_text(_message_text(message), 700)
         for message in working.get("messages", [])[-6:]
         if _message_text(message).strip()
     )
-    model = create_model().bind_tools(build_planner_tools(working, writer))
+    model = create_model().bind_tools(build_planner_tools(working, writer, state_updates))
     prompt = f"用户任务：{working.get('task', '')}\n\n上下文工程记忆：\n{format_memory(memory)}"
     if recent_messages:
         prompt += f"\n\n最近图消息和工具结果摘要：\n{recent_messages}"
@@ -45,21 +46,18 @@ def planner_node(state: FishState) -> dict[str, Any]:
     tool_calls = getattr(response, "tool_calls", None) or []
     writer({"type": "planner_round", "round": working.get("planner_rounds", 0) + 1, "tool_calls": len(tool_calls)})
     for call in tool_calls:
-        tool_message = _execute_planner_tool(working, writer, call)
+        tool_message = _execute_planner_tool(working, writer, call, state_updates)
         produced.append(tool_message)
         messages.append(tool_message)
     done = not tool_calls
     final_answer = str(getattr(response, "content", "") or "").strip() if done else ""
     return {
+        **state_updates,
         "messages": produced,
         "planner_rounds": working.get("planner_rounds", 0) + 1,
         "since_compression": working.get("since_compression", 0) + 1,
         "done": done,
         "final_answer": final_answer,
-        "search_notes": working.get("search_notes", ""),
-        "sources": working.get("sources", []),
-        "code_summary": working.get("code_summary", ""),
-        "handoffs": working.get("handoffs", []),
         "metadata": {"last_planner_response": final_answer or short_text(getattr(response, "content", ""), 800)},
     }
 
@@ -129,9 +127,14 @@ def final_node(state: FishState) -> dict[str, Any]:
     return {"final_answer": answer, "done": True}
 
 
-def _execute_planner_tool(state: FishState, writer, call: dict[str, Any]) -> ToolMessage:
+def _execute_planner_tool(
+    state: FishState,
+    writer,
+    call: dict[str, Any],
+    state_updates: FishState | None = None,
+) -> ToolMessage:
     """执行 planner 的 SearchAgentTool/CodeAgentTool 调用。"""
-    tools = {tool.name: tool for tool in build_planner_tools(state, writer)}
+    tools = {tool.name: tool for tool in build_planner_tools(state, writer, state_updates)}
     name = str(call.get("name", ""))
     args = call.get("args") or {}
     writer({"type": "tool_call", "node": "planner", "name": name, "args": args})

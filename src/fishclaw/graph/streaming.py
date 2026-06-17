@@ -42,8 +42,12 @@ def stream_fishclaw_events(
         "since_compression": 0,
         "context_summary": "",
         "history_summary": store.read_history(),
+        "search_notes": "",
         "sources": [],
+        "code_summary": "",
         "handoffs": [],
+        "metadata": {},
+        "errors": [],
     }
     yield from _stream_graph_events(
         inputs=inputs,
@@ -103,4 +107,3 @@ def _stream_graph_events(
     finally:
         store.save_state(current_state, status="finished" if current_state.get("done") else "stopped")
         store.append_event({"type": "run_end", "done": current_state.get("done", False)})
-

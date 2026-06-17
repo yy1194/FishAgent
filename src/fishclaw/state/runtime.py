@@ -10,7 +10,8 @@ from typing import Annotated, Any, TypedDict
 from uuid import uuid4
 
 from langchain_core.messages import BaseMessage
-from langgraph.graph import add_messages
+
+from fishclaw.state.reducers import append_items, append_text, merge_dicts, merge_messages, merge_sources
 
 
 def new_workspace(root: Path | None = None) -> Path:
@@ -66,7 +67,7 @@ class FishState(TypedDict, total=False):
 
     task: str
     runtime: FishRuntime
-    messages: Annotated[list[BaseMessage], add_messages]
+    messages: Annotated[list[BaseMessage], merge_messages]
     planner_rounds: int
     since_compression: int
     should_compress: bool
@@ -74,8 +75,9 @@ class FishState(TypedDict, total=False):
     final_answer: str
     context_summary: str
     history_summary: str
-    search_notes: str
-    sources: list[dict[str, Any]]
-    code_summary: str
-    handoffs: list[dict[str, Any]]
-    metadata: dict[str, Any]
+    search_notes: Annotated[str, append_text]
+    sources: Annotated[list[dict[str, Any]], merge_sources]
+    code_summary: Annotated[str, append_text]
+    handoffs: Annotated[list[dict[str, Any]], append_items]
+    metadata: Annotated[dict[str, Any], merge_dicts]
+    errors: Annotated[list[dict[str, Any]], append_items]

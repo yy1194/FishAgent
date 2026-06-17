@@ -6,10 +6,9 @@ import json
 from typing import Any
 
 from langchain_core.messages import messages_from_dict
-from langgraph.graph import add_messages
 
 from fishclaw.memory import FishStore
-from fishclaw.state import FishRuntime, FishState
+from fishclaw.state import FishRuntime, FishState, apply_state_update
 
 
 def _merge_update(state: FishState, event: Any) -> None:
@@ -19,11 +18,7 @@ def _merge_update(state: FishState, event: Any) -> None:
     for update in event.values():
         if not isinstance(update, dict):
             continue
-        for key, value in update.items():
-            if key == "messages":
-                state["messages"] = list(add_messages(state.get("messages", []), value))
-            else:
-                state[key] = value
+        apply_state_update(state, update)
 
 
 def _restore_saved_state(payload: dict[str, Any], runtime: FishRuntime) -> FishState:
@@ -38,6 +33,10 @@ def _restore_saved_state(payload: dict[str, Any], runtime: FishRuntime) -> FishS
     state.setdefault("messages", [])
     state.setdefault("sources", [])
     state.setdefault("handoffs", [])
+    state.setdefault("search_notes", "")
+    state.setdefault("code_summary", "")
+    state.setdefault("metadata", {})
+    state.setdefault("errors", [])
     state.setdefault("context_summary", "")
     state.setdefault("history_summary", FishStore(runtime).read_history())
     return state
@@ -47,4 +46,3 @@ def _message_text(message: Any) -> str:
     """把消息对象转换成文本。"""
     content = getattr(message, "content", message)
     return content if isinstance(content, str) else json.dumps(content, ensure_ascii=False, default=str)
-
