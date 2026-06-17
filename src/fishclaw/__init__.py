@@ -1,4 +1,4 @@
-"""Fishclaw：更轻量的 MultiAgent CodeAgent 实现。"""
+"""Fishclaw：轻量的 MultiAgent CodeAgent 实现。"""
 
 __all__ = ["__version__"]
 

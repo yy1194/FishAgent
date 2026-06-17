@@ -90,16 +90,20 @@ class FishStore:
         if not self.state_file.exists():
             raise FileNotFoundError(f"State file does not exist: {self.state_file}")
         return json.loads(self.state_file.read_text(encoding="utf-8"))
-    
+
     def iter_events(self, limit: int | None = None) -> Iterator[dict[str, Any]]:
         """读取 events.jsonl，limit 表示只取最后 N 条。"""
         if not self.events_file.exists():
             return
         lines = self.events_file.read_text(encoding="utf-8", errors="replace").splitlines()
         if limit is not None:
-            lines = lines[-max(1,int(limit))]
+            lines = lines[-max(1, int(limit)) :]
         for line in lines:
+            line = line.strip()
+            if not line:
+                continue
             yield json.loads(line)
+
 
 def build_memory(state: FishState) -> dict[str, Any]:
     """组装 planner/search/code/compressor 共用的 layered memory。"""
@@ -140,3 +144,4 @@ def merge_sources(*groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             seen.add(url)
             merged.append(source)
     return merged
+

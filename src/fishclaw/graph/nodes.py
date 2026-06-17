@@ -1,20 +1,19 @@
-"""Fishclaw 的简化 LangGraph 工作流。"""
+"""Fishclaw LangGraph 节点和路由函数。"""
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, SystemMessage, ToolMessage
 from langgraph.config import get_stream_writer
-from langgraph.graph import END, START, StateGraph, add_messages
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
 from fishclaw.agents import PLANNER_PROMPT, build_planner_tools
+from fishclaw.graph.state_io import _message_text
 from fishclaw.memory import FishStore, build_memory, format_memory, json_safe, short_text
 from fishclaw.model import create_model
-from fishclaw.state import FishRuntime, FishState, new_workspace
+from fishclaw.state import FishState
 
 
 COMPRESS_PROMPT = """你是 Fishclaw 的 context_compressor。
@@ -23,87 +22,23 @@ COMPRESS_PROMPT = """你是 Fishclaw 的 context_compressor。
 只输出压缩后的中文摘要。"""
 
 
-def create_runtime(
-    workspace: Path | None = None,
-    *,
-    max_planner_rounds: int = 8,
-    compress_every: int | None = None,
-) -> FishRuntime:
-    """创建 Fishclaw runtime。"""
-    runtime = FishRuntime(workspace=workspace or new_workspace(), max_planner_rounds=max_planner_rounds)
-    if compress_every is not None:
-        runtime.compress_every = max(1, int(compress_every))
-    return runtime
-
-
-def build_workflow():
-    """构建：planner -> context_gate -> compressor/final/planner。"""
-    graph = StateGraph(FishState)
-    graph.add_node("planner", planner_node)
-    graph.add_node("context_gate", context_gate_node)
-    graph.add_node("context_compressor", context_compressor_node)
-    graph.add_node("final", final_node)
-    graph.add_edge(START, "planner")
-    graph.add_edge("planner", "context_gate")
-    graph.add_conditional_edges(
-        "context_gate",
-        context_route,
-        {"planner": "planner", "context_compressor": "context_compressor", "final": "final"},
-    )
-    graph.add_edge("context_compressor", "planner")
-    graph.add_edge("final", END)
-    return graph.compile()
-
-
-def stream_fishclaw_events(
-    task: str,
-    *,
-    workspace: Path | None = None,
-    max_planner_rounds: int = 8,
-    compress_every: int | None = None,
-) -> Iterator[dict[str, Any]]:
-    """从用户任务开始，流式运行 Fishclaw 工作流。"""
-    runtime = create_runtime(workspace, max_planner_rounds=max_planner_rounds, compress_every=compress_every)
-    store = FishStore(runtime)
-    inputs: FishState = {
-        "task": task,
-        "runtime": runtime,
-        "messages": [],
-        "planner_rounds": 0,
-        "since_compression": 0,
-        "context_summary": "",
-        "history_summary": store.read_history(),
-        "sources": [],
-        "handoffs": [],
-    }
-    store.append_event({"type": "run_start", "task": task, "workspace": str(runtime.workspace)})
-    store.save_state(inputs, status="started")
-    yield {"type": "workspace", "path": str(runtime.workspace)}
-
-    current_state: FishState = dict(inputs)
-    try:
-        for mode, event in build_workflow().stream(inputs, stream_mode=["updates", "custom"]):
-            if mode == "custom":
-                store.append_event(event if isinstance(event, dict) else {"type": "custom", "payload": event})
-                yield {"type": "custom_event", "event": event}
-            else:
-                _merge_update(current_state, event)
-                store.save_state(current_state, status="running")
-                yield {"type": "graph_event", "event": event}
-    finally:
-        store.save_state(current_state, status="finished" if current_state.get("done") else "stopped")
-        store.append_event({"type": "run_end", "done": current_state.get("done", False)})
-
-
 def planner_node(state: FishState) -> dict[str, Any]:
     """planner 节点：让模型选择 SearchAgentTool 或 CodeAgentTool。"""
     writer = _writer()
     working: FishState = {**state}
     memory = build_memory(working)
+    recent_messages = "\n\n".join(
+        short_text(_message_text(message), 700)
+        for message in working.get("messages", [])[-6:]
+        if _message_text(message).strip()
+    )
     model = create_model().bind_tools(build_planner_tools(working, writer))
+    prompt = f"用户任务：{working.get('task', '')}\n\n上下文工程记忆：\n{format_memory(memory)}"
+    if recent_messages:
+        prompt += f"\n\n最近图消息和工具结果摘要：\n{recent_messages}"
     messages: list[Any] = [
         SystemMessage(content=PLANNER_PROMPT),
-        HumanMessage(content=f"用户任务：{working.get('task', '')}\n\n上下文工程记忆：\n{format_memory(memory)}"),
+        HumanMessage(content=prompt),
     ]
     response = model.invoke(messages)
     produced: list[Any] = [response]
@@ -194,7 +129,7 @@ def final_node(state: FishState) -> dict[str, Any]:
     return {"final_answer": answer, "done": True}
 
 
-def _execute_planner_tool(state: FishState, writer, call: dict[str, Any]):
+def _execute_planner_tool(state: FishState, writer, call: dict[str, Any]) -> ToolMessage:
     """执行 planner 的 SearchAgentTool/CodeAgentTool 调用。"""
     tools = {tool.name: tool for tool in build_planner_tools(state, writer)}
     name = str(call.get("name", ""))
@@ -208,31 +143,9 @@ def _execute_planner_tool(state: FishState, writer, call: dict[str, Any]):
             result = tool.invoke(args)
         except Exception as exc:
             result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-    from langchain_core.messages import ToolMessage
-
     tool_message = ToolMessage(content=json.dumps(result, ensure_ascii=False, default=str), name=name, tool_call_id=call.get("id") or f"{name}-call")
     writer({"type": "tool_result", "node": "planner", "name": name, "result": result})
     return tool_message
-
-
-def _merge_update(state: FishState, event: Any) -> None:
-    """把 LangGraph update 合并到本地状态，供持久化使用。"""
-    if not isinstance(event, dict):
-        return
-    for update in event.values():
-        if not isinstance(update, dict):
-            continue
-        for key, value in update.items():
-            if key == "messages":
-                state["messages"] = list(add_messages(state.get("messages", []), value))
-            else:
-                state[key] = value
-
-
-def _message_text(message: Any) -> str:
-    """把消息对象转换成文本。"""
-    content = getattr(message, "content", message)
-    return content if isinstance(content, str) else json.dumps(content, ensure_ascii=False, default=str)
 
 
 def _writer():

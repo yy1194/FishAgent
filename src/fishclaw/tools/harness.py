@@ -218,3 +218,4 @@ def build_search_tool() -> StructuredTool:
 def tool_result_json(result: Any) -> str:
     """把工具结果编码成 ToolMessage 可用的 JSON 字符串。"""
     return json.dumps(result, ensure_ascii=False, default=str)
+

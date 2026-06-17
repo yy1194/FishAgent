@@ -11,7 +11,7 @@ from rich import box
 from rich.console import Console
 from rich.panel import Panel
 
-from fishclaw.graph import stream_fishclaw_events
+from fishclaw.graph import stream_fishclaw_events, resume_fishclaw_events
 from fishclaw.memory import FishStore
 from fishclaw.state import FishRuntime
 
@@ -56,7 +56,7 @@ def inspect_workspace(workspace: Annotated[Path, typer.Argument(help="Fishclaw w
         "sources_count": len(state.get("sources", [])),
         "handoffs_count": len(state.get("handoffs", [])),
         "updated_at": state.get("updated_at"),
-        "final_answer": state.get("final_answer", ""),
+        "final_answer": _compact_payload(state.get("final_answer", "")),
     }
     console.print(Panel(json.dumps(summary, ensure_ascii=False, indent=2), title="Fishclaw State"))
 
@@ -68,7 +68,21 @@ def show_events(
     """显示 workspace 中的事件。"""
     store = _store_for_workspace(workspace)
     for item in store.iter_events(limit=limit):
-        console.print(_compact_payload(item, limit=2000))
+        console.print(_compact_payload(item, limit=200))
+
+@app.command("resume")
+def resume_workspace(
+    workspace: Annotated[Path, typer.Argument(help="Fishclaw workspace 路径。")],
+    max_rounds: Annotated[int, typer.Option("--max-rounds", help="planner 最大轮数。")] = 8,
+    compress_every: Annotated[int, typer.Option("--compress-every", help="每 N 轮自动压缩上下文。")] = 4,
+) -> None:
+    """从已有 workspace 的 state.json 恢复运行。"""
+    for event in resume_fishclaw_events(
+        workspace,
+        max_planner_rounds=max_rounds,
+        compress_every=compress_every,
+    ):
+        _print_event(event)
 
 def _print_event(event: dict) -> None:
     """把流式事件渲染成简洁 Rich 面板。"""
