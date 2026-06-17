@@ -16,6 +16,7 @@ from langchain_core.tools import StructuredTool
 
 from fishclaw.state import FishRuntime
 
+SKIPPED_DIR_NAMES = {".git", ".fishclaw", ".venv", "__pycache__", "node_modules"}
 
 DANGEROUS_COMMANDS = [
     r"\brm\s+-rf\b",
@@ -26,6 +27,11 @@ DANGEROUS_COMMANDS = [
     r"\breboot\b",
 ]
 
+def _to_bool(value: bool | str) -> bool:
+    """把工具参数中的字符串布尔值转换为 bool。"""
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+    return bool(value)
 
 def read_text_lossy(path: Path) -> str:
     """按常见编码读取文本，失败时用替换字符兜底。"""
@@ -116,7 +122,7 @@ def grep(runtime: FishRuntime, pattern: str, path: str = ".", head_limit: int | 
     candidates = [root] if root.is_file() else [item for item in root.rglob("*") if item.is_file()]
     matches: list[dict[str, Any]] = []
     for candidate in candidates:
-        if any(part in {".git", ".fishclaw", ".venv", "__pycache__", "node_modules"} for part in candidate.parts):
+        if any(part in SKIPPED_DIR_NAMES for part in candidate.parts):
             continue
         for line_no, line in enumerate(read_text_lossy(candidate).splitlines(), start=1):
             if regex.search(line):
@@ -125,6 +131,88 @@ def grep(runtime: FishRuntime, pattern: str, path: str = ".", head_limit: int | 
                     return {"ok": True, "matches": matches, "truncated": True}
     return {"ok": True, "matches": matches, "truncated": False}
 
+def list_files(
+    runtime: FishRuntime,
+    path: str = ".",
+    recursive: bool | str = False,
+    max_entries: int | str = 200,
+    include_hidden: bool | str = False,
+) -> dict[str, Any]:
+    """列出 workspace 内文件，默认跳过内部目录。"""
+    try:
+        root = resolve_path(runtime, path)
+        limit = max(1, min(int(max_entries), 1000))
+        recursive_value = _to_bool(recursive)
+        include_hidden_value = _to_bool(include_hidden)
+    except (TypeError, ValueError) as exc:
+        return {"ok": False, "error": str(exc)}
+    if not root.exists():
+        return {"ok": False, "error": f"path does not exist: {display_path(runtime, root)}"}
+    candidates = [root] if root.is_file() else (root.rglob("*") if recursive_value else root.iterdir())
+    entries: list[dict[str, Any]] = []
+    for item in sorted(candidates, key=lambda value: str(value).lower()):
+        if not include_hidden_value and item.name.startswith("."):
+            continue
+        if any(part in SKIPPED_DIR_NAMES for part in item.parts):
+            continue
+
+        entry: dict[str, Any] = {
+            "path": display_path(runtime, item),
+            "type": "dir" if item.is_dir() else "file",
+        }
+        if item.is_file():
+            entry["size"] = item.stat().st_size
+
+        entries.append(entry)
+        if len(entries) >= limit:
+            return {"ok": True, "root": display_path(runtime, root), "entries": entries, "truncated": True}
+
+    return {"ok": True, "root": display_path(runtime, root), "entries": entries, "truncated": False}
+
+def patch_file(
+    runtime: FishRuntime,
+    file_path: str,
+    old_text: str,
+    new_text: str,
+    expected_replacements: int | str = 1,
+) -> dict[str, Any]:
+    """用精确文本替换方式局部修改文件；已有文件必须先读过。"""
+    try:
+        path = resolve_path(runtime, file_path)
+        expected = max(1, int(expected_replacements))
+    except (TypeError, ValueError) as exc:
+        return {"ok": False, "error": str(exc)}
+
+    if not path.exists() or not path.is_file():
+        return {"ok": False, "error": f"file does not exist: {display_path(runtime, path)}"}
+    if not old_text:
+        return {"ok": False, "error": "old_text must not be empty"}
+
+    snapshot = runtime.read_snapshots.get(path.resolve())
+    if snapshot is None:
+        return {"ok": False, "error": "existing file must be read before patching"}
+    if path.stat().st_mtime_ns != snapshot:
+        return {"ok": False, "error": "file changed after read; read it again before patching"}
+
+    original = read_text_lossy(path)
+    count = original.count(old_text)
+    if count != expected:
+        return {"ok": False, "error": f"old_text matched {count} time(s), expected {expected}"}
+
+    updated = original.replace(old_text, new_text, expected)
+    path.write_text(updated, encoding="utf-8")
+    runtime.record_read(path)
+
+    diff = "\n".join(
+        difflib.unified_diff(
+            original.splitlines(),
+            updated.splitlines(),
+            fromfile=f"a/{display_path(runtime, path)}",
+            tofile=f"b/{display_path(runtime, path)}",
+            lineterm="",
+        )
+    )
+    return {"ok": True, "path": display_path(runtime, path), "replacements": expected, "diff": diff[:4000]}
 
 def run_bash(runtime: FishRuntime, command: str, timeout_seconds: int | str | None = None) -> dict[str, Any]:
     """在 workspace 内运行非交互命令，并拦截明显危险操作。"""
@@ -189,6 +277,20 @@ def build_code_tools(runtime: FishRuntime) -> list[StructuredTool]:
             description="读取 workspace 内文本文件。参数：file_path, offset, limit。",
         ),
         StructuredTool.from_function(
+            name="ListFilesTool",
+            func=lambda path=".", recursive=False, max_entries=200, include_hidden=False: list_files(
+                runtime, path, recursive, max_entries, include_hidden
+            ),
+            description="列出 workspace 内文件。参数：path, recursive, max_entries, include_hidden。",
+        ),
+        StructuredTool.from_function(
+            name="PatchTool",
+            func=lambda file_path, old_text, new_text, expected_replacements=1: patch_file(
+                runtime, file_path, old_text, new_text, expected_replacements
+            ),
+            description="局部修改 workspace 内已有文件；必须先读取文件。参数：file_path, old_text, new_text, expected_replacements。",
+        ),
+        StructuredTool.from_function(
             name="FileWriteTool",
             func=lambda file_path, content: file_write(runtime, file_path, content),
             description="创建或重写 workspace 内文件；已有文件必须先读。参数：file_path, content。",
@@ -218,4 +320,3 @@ def build_search_tool() -> StructuredTool:
 def tool_result_json(result: Any) -> str:
     """把工具结果编码成 ToolMessage 可用的 JSON 字符串。"""
     return json.dumps(result, ensure_ascii=False, default=str)
-

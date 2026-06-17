@@ -7,6 +7,8 @@ from fishclaw.tools.harness import (
     file_read,
     file_write,
     grep,
+    list_files,
+    patch_file,
     read_text_lossy,
     resolve_path,
     run_bash,
@@ -21,10 +23,11 @@ __all__ = [
     "file_read",
     "file_write",
     "grep",
+    "list_files",
+    "patch_file",
     "read_text_lossy",
     "resolve_path",
     "run_bash",
     "tool_result_json",
     "web_search",
 ]
-
