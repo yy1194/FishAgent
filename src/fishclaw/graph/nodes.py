@@ -19,11 +19,12 @@ from fishclaw.state import FishState
 COMPRESS_PROMPT = """你是 Fishclaw 的 context_compressor。
 请把旧消息、搜索笔记、代码摘要、handoff 和历史摘要压缩成一段可继续工作的中文上下文。
 保留：用户目标、已完成工作、重要文件、来源链接、未完成事项、风险。
+结构化 task_plan 和 active_task_id 是任务状态的唯一权威来源。不要根据旧消息自行改写任务清单、任务 id、agent 归属或完成状态；如果摘要中提到任务状态，必须以当前 memory.task_plan 为准。
 只输出压缩后的中文摘要。"""
 
 
 def planner_node(state: FishState) -> dict[str, Any]:
-    """planner 节点：让模型选择 SearchAgentTool 或 CodeAgentTool。"""
+    """planner 节点：让模型维护任务清单并选择子 Agent 工具。"""
     writer = _writer()
     working: FishState = {**state}
     state_updates: FishState = {}
@@ -120,11 +121,30 @@ def final_node(state: FishState) -> dict[str, Any]:
     if not answer:
         answer = (
             "Fishclaw 已停止继续规划。\n\n"
+            f"任务清单：\n{_task_plan_status_text(state)}\n\n"
             f"代码摘要：{state.get('code_summary', '') or '(无)'}\n\n"
             f"搜索摘要：{state.get('search_notes', '') or '(无)'}"
         )
     FishStore(state["runtime"]).save_state({**state, "final_answer": answer, "done": True}, status="finished")
     return {"final_answer": answer, "done": True}
+
+
+def _task_plan_status_text(state: FishState) -> str:
+    """Render a compact task-plan status for fallback final answers."""
+    task_plan = state.get("task_plan", [])
+    if not isinstance(task_plan, list) or not task_plan:
+        return "(无)"
+    lines: list[str] = []
+    for item in task_plan[:20]:
+        if not isinstance(item, dict):
+            continue
+        task_id = str(item.get("id", "")).strip() or "unknown"
+        title = str(item.get("title", "")).strip() or str(item.get("instruction", "")).strip()
+        status = str(item.get("status", "pending")).strip() or "pending"
+        result = str(item.get("result", "")).strip()
+        detail = result or str(item.get("instruction", "")).strip()
+        lines.append(f"- {task_id} [{status}] {short_text(title, 120)}：{short_text(detail, 240) or '(无摘要)'}")
+    return "\n".join(lines) if lines else "(无)"
 
 
 def _execute_planner_tool(

@@ -9,6 +9,7 @@ import pytest
 from fishclaw.state import FishRuntime
 from fishclaw.tools.harness import (
     build_code_tools,
+    build_search_tools,
     file_read,
     file_write,
     grep,
@@ -204,3 +205,9 @@ def test_build_code_tools_exposes_list_files_and_patch(runtime: FishRuntime) -> 
     tool_names = {tool.name for tool in build_code_tools(runtime)}
 
     assert {"FileReadTool", "ListFilesTool", "PatchTool", "FileWriteTool", "GrepTool", "BashTool"}.issubset(tool_names)
+
+
+def test_build_search_tools_exposes_only_web_search(runtime: FishRuntime) -> None:
+    tool_names = {tool.name for tool in build_search_tools(runtime)}
+
+    assert tool_names == {"WebSearchTool"}

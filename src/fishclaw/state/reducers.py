@@ -35,6 +35,36 @@ def append_items(left: Any, right: Any) -> list[Any]:
     return [*left_items, *right_items]
 
 
+def merge_task_plan(left: Any, right: Any) -> list[dict[str, Any]]:
+    """Merge task-plan items by id while preserving their original order."""
+    merged: list[dict[str, Any]] = []
+    index_by_id: dict[str, int] = {}
+    for item in _task_plan_items(left) + _task_plan_items(right):
+        task_id = str(item.get("id", "")).strip()
+        if not task_id:
+            continue
+        normalized = dict(item)
+        normalized["id"] = task_id
+        if task_id in index_by_id:
+            index = index_by_id[task_id]
+            merged[index] = {**merged[index], **normalized}
+        else:
+            index_by_id[task_id] = len(merged)
+            merged.append(normalized)
+    return merged
+
+
+def _task_plan_items(value: Any) -> list[dict[str, Any]]:
+    """Coerce reducer input into task-plan item dictionaries."""
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)]
+
+
 def merge_sources(left: Any, right: Any) -> list[dict[str, Any]]:
     """Merge source records, keeping the first item for each URL."""
     merged: list[dict[str, Any]] = []
@@ -62,10 +92,16 @@ def merge_dicts(left: Any, right: Any) -> dict[str, Any]:
 
 STATE_REDUCERS: dict[str, StateReducer] = {
     "messages": merge_messages,
+    "task_plan": merge_task_plan,
     "search_notes": append_text,
     "sources": merge_sources,
+    "research_artifacts": append_items,
+    "research_batches": append_items,
+    "research_assessments": append_items,
     "code_summary": append_text,
     "handoffs": append_items,
+    "review_notes": append_text,
+    "test_notes": append_text,
     "metadata": merge_dicts,
     "errors": append_items,
 }

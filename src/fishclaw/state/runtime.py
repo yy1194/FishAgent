@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from langchain_core.messages import BaseMessage
 
-from fishclaw.state.reducers import append_items, append_text, merge_dicts, merge_messages, merge_sources
+from fishclaw.state.reducers import append_items, append_text, merge_dicts, merge_messages, merge_sources, merge_task_plan
 
 
 def new_workspace(root: Path | None = None) -> Path:
@@ -37,6 +37,10 @@ class FishRuntime:
     workspace: Path
     max_planner_rounds: int = 8
     max_agent_loops: int = 6
+    max_search_tool_calls: int = field(default_factory=lambda: _env_int("FISHCLAW_MAX_SEARCH_TOOL_CALLS", 8))
+    max_search_tool_calls_per_turn: int = field(
+        default_factory=lambda: _env_int("FISHCLAW_MAX_SEARCH_TOOL_CALLS_PER_TURN", 4)
+    )
     compress_every: int = field(default_factory=lambda: _env_int("FISHCLAW_COMPRESS_EVERY", 4))
     bash_timeout_seconds: int = field(default_factory=lambda: _env_int("FISHCLAW_BASH_TIMEOUT_SECONDS", 120))
     max_output_chars: int = field(default_factory=lambda: _env_int("FISHCLAW_MAX_OUTPUT_CHARS", 6000))
@@ -73,11 +77,24 @@ class FishState(TypedDict, total=False):
     should_compress: bool
     done: bool
     final_answer: str
+    task_plan: Annotated[list[dict[str, Any]], merge_task_plan]
+    active_task_id: str
+    plan_summary: str
     context_summary: str
     history_summary: str
     search_notes: Annotated[str, append_text]
     sources: Annotated[list[dict[str, Any]], merge_sources]
+    research_artifacts: Annotated[list[dict[str, Any]], append_items]
+    research_batches: Annotated[list[dict[str, Any]], append_items]
+    latest_research_batch: dict[str, Any]
+    research_assessments: Annotated[list[dict[str, Any]], append_items]
+    latest_research_assessment: dict[str, Any]
     code_summary: Annotated[str, append_text]
     handoffs: Annotated[list[dict[str, Any]], append_items]
     metadata: Annotated[dict[str, Any], merge_dicts]
     errors: Annotated[list[dict[str, Any]], append_items]
+    review_notes: Annotated[str, append_text]
+    test_notes: Annotated[str, append_text]
+    verification_status: str
+    verified: bool
+    code_dirty: bool

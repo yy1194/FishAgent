@@ -8,6 +8,7 @@ from fishclaw.state.reducers import (
     merge_dicts,
     merge_messages,
     merge_sources,
+    merge_task_plan,
     reduce_state_value,
 )
 from fishclaw.state.runtime import FishRuntime, FishState, new_workspace
@@ -22,6 +23,7 @@ __all__ = [
     "merge_dicts",
     "merge_messages",
     "merge_sources",
+    "merge_task_plan",
     "new_workspace",
     "reduce_state_value",
 ]

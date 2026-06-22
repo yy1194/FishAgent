@@ -2,6 +2,7 @@
 
 from fishclaw.memory.store import (
     FishStore,
+    build_agent_memory,
     build_memory,
     format_memory,
     json_safe,
@@ -12,6 +13,7 @@ from fishclaw.memory.store import (
 
 __all__ = [
     "FishStore",
+    "build_agent_memory",
     "build_memory",
     "format_memory",
     "json_safe",
@@ -19,4 +21,3 @@ __all__ = [
     "short_text",
     "utc_now",
 ]
-

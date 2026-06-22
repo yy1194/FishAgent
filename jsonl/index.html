@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JSONL 解析器</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel-soft: #f0f5f3;
+      --ink: #172026;
+      --muted: #64717d;
+      --line: #dce3e7;
+      --accent: #12695f;
+      --accent-strong: #0c4f48;
+      --warn: #a75a00;
+      --bad: #b42318;
+      --good: #177245;
+      --shadow: 0 18px 44px rgba(23, 32, 38, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        linear-gradient(180deg, rgba(18, 105, 95, 0.08), transparent 280px),
+        var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+    }
+
+    button,
+    textarea,
+    input {
+      font: inherit;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+      border-radius: 6px;
+      padding: 8px 12px;
+      min-height: 36px;
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+
+    button:hover {
+      border-color: #9db7b1;
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button.primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+
+    button.primary:hover {
+      background: var(--accent-strong);
+    }
+
+    button.ghost {
+      background: transparent;
+    }
+
+    button[aria-pressed="true"] {
+      border-color: var(--accent);
+      background: #e4f2ee;
+      color: var(--accent-strong);
+      font-weight: 600;
+    }
+
+    .app {
+      width: min(1440px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 32px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .title {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 14px;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.92fr) minmax(420px, 1.08fr);
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      min-height: 56px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .panel-title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .panel-actions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .input-wrap {
+      position: relative;
+      min-height: 610px;
+    }
+
+    textarea {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      resize: vertical;
+      min-height: 610px;
+      display: block;
+      padding: 16px;
+      color: var(--ink);
+      background: #fff;
+      font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      tab-size: 2;
+    }
+
+    .drop-hint {
+      position: absolute;
+      inset: 14px;
+      display: none;
+      place-items: center;
+      border: 2px dashed var(--accent);
+      border-radius: 8px;
+      background: rgba(228, 242, 238, 0.9);
+      color: var(--accent-strong);
+      font-weight: 700;
+      pointer-events: none;
+    }
+
+    .input-wrap.dragging .drop-hint {
+      display: grid;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .stat {
+      min-width: 0;
+      padding: 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid rgba(220, 227, 231, 0.8);
+    }
+
+    .stat-value {
+      display: block;
+      font-size: 22px;
+      line-height: 1.1;
+      font-weight: 750;
+      color: var(--accent-strong);
+    }
+
+    .stat-label {
+      display: block;
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .options {
+      padding: 12px 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .check {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      user-select: none;
+    }
+
+    .check input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .search {
+      flex: 1 1 220px;
+      min-width: 180px;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      outline: 0;
+      color: var(--ink);
+      background: #fff;
+    }
+
+    .search:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(18, 105, 95, 0.13);
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .view {
+      min-height: 450px;
+    }
+
+    .output-text {
+      min-height: 450px;
+      max-height: 70vh;
+      border-top: 0;
+      background: #fbfcfd;
+    }
+
+    .table-wrap {
+      display: none;
+      min-height: 450px;
+      max-height: 70vh;
+      overflow: auto;
+      background: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+      max-width: 280px;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: #eef5f3;
+      color: #24413c;
+      font-weight: 700;
+    }
+
+    td {
+      color: #28343b;
+      overflow-wrap: anywhere;
+    }
+
+    .line-no {
+      width: 72px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .empty {
+      min-height: 450px;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .errors {
+      border-top: 1px solid var(--line);
+      background: #fff8f7;
+      display: none;
+    }
+
+    .errors.show {
+      display: block;
+    }
+
+    .errors-head {
+      padding: 12px 14px;
+      color: var(--bad);
+      font-weight: 700;
+      border-bottom: 1px solid #f1cbc7;
+    }
+
+    .error-list {
+      max-height: 180px;
+      overflow: auto;
+    }
+
+    .error-item {
+      padding: 10px 14px;
+      border-bottom: 1px solid #f5d7d3;
+      font-size: 13px;
+    }
+
+    .error-line {
+      color: var(--bad);
+      font-weight: 700;
+    }
+
+    .error-msg {
+      margin: 4px 0;
+      color: #7a271a;
+    }
+
+    .error-src {
+      color: #8a5d55;
+      font-family: Consolas, "Cascadia Mono", "Courier New", monospace;
+      overflow-wrap: anywhere;
+    }
+
+    .status {
+      margin-top: 12px;
+      min-height: 22px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status.ok {
+      color: var(--good);
+    }
+
+    .status.warn {
+      color: var(--warn);
+    }
+
+    .status.bad {
+      color: var(--bad);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @media (max-width: 980px) {
+      .workspace {
+        grid-template-columns: 1fr;
+      }
+
+      .input-wrap,
+      textarea,
+      .output-text,
+      .table-wrap,
+      .view,
+      .empty {
+        min-height: 420px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        width: min(100vw - 18px, 100%);
+        padding-top: 14px;
+      }
+
+      .topbar,
+      .panel-head {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .title {
+        display: block;
+      }
+
+      .subtitle {
+        display: block;
+        margin-top: 6px;
+        white-space: normal;
+      }
+
+      .toolbar,
+      .panel-actions {
+        justify-content: flex-start;
+      }
+
+      .stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <section class="topbar" aria-label="JSONL 解析器标题和操作">
+      <div class="title">
+        <h1>JSONL 解析器</h1>
+        <span class="subtitle">Fishclaw 日志 / NDJSON / JSON Lines</span>
+      </div>
+      <div class="toolbar">
+        <button class="ghost" id="loadSample" type="button" title="填入示例 JSONL">示例</button>
+        <button class="ghost" id="clearInput" type="button" title="清空输入和输出">清空</button>
+        <button class="primary" id="parseNow" type="button" title="重新解析当前内容">解析</button>
+      </div>
+    </section>
+
+    <section class="workspace">
+      <section class="panel" aria-label="输入 JSONL">
+        <div class="panel-head">
+          <div class="panel-title">输入</div>
+          <div class="panel-actions">
+            <input class="sr-only" id="fileInput" type="file" accept=".jsonl,.ndjson,.log,.txt,application/json">
+            <button id="pickFile" type="button" title="选择本地 JSONL 文件">打开文件</button>
+            <button id="unwrapEscaped" type="button" title="把字符串中的反斜杠 n 转成真实换行">反转义 \n</button>
+          </div>
+        </div>
+        <div class="input-wrap" id="dropZone">
+          <textarea id="jsonlInput" spellcheck="false" placeholder='例如：
+{"event":"workspace","workspace_id":"workspace-20260619-233005-be53c6"}
+{"event":"state","step":1,"ok":true}
+{"event":"message","role":"assistant","content":"done"}'></textarea>
+          <div class="drop-hint">松开后读取文件</div>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="解析结果">
+        <div class="panel-head">
+          <div class="panel-title">结果</div>
+          <div class="panel-actions">
+            <div class="tabs" role="tablist" aria-label="输出模式">
+              <button type="button" role="tab" aria-pressed="true" data-mode="pretty">格式化</button>
+              <button type="button" role="tab" aria-pressed="false" data-mode="array">数组</button>
+              <button type="button" role="tab" aria-pressed="false" data-mode="jsonl">JSONL</button>
+              <button type="button" role="tab" aria-pressed="false" data-mode="table">表格</button>
+            </div>
+            <button id="copyOutput" type="button" title="复制当前输出">复制</button>
+            <button id="downloadOutput" type="button" title="下载当前输出">下载</button>
+          </div>
+        </div>
+
+        <div class="stats" aria-label="解析统计">
+          <div class="stat">
+            <span class="stat-value" id="lineCount">0</span>
+            <span class="stat-label">总行数</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="validCount">0</span>
+            <span class="stat-label">有效 JSON</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="errorCount">0</span>
+            <span class="stat-label">错误行</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="byteCount">0</span>
+            <span class="stat-label">字节</span>
+          </div>
+        </div>
+
+        <div class="options">
+          <label class="check">
+            <input id="skipBlank" type="checkbox" checked>
+            忽略空行
+          </label>
+          <label class="check">
+            <input id="autoParse" type="checkbox" checked>
+            输入时自动解析
+          </label>
+          <input class="search" id="filterInput" type="search" placeholder="过滤预览内容">
+        </div>
+
+        <div class="view">
+          <textarea class="output-text" id="outputText" readonly spellcheck="false" placeholder="解析结果会显示在这里"></textarea>
+          <div class="table-wrap" id="tableWrap"></div>
+        </div>
+
+        <div class="errors" id="errorsPanel" aria-live="polite">
+          <div class="errors-head" id="errorsHead">错误行</div>
+          <div class="error-list" id="errorList"></div>
+        </div>
+      </section>
+    </section>
+
+    <div class="status" id="status" role="status"></div>
+  </main>
+
+  <script>
+    const inputEl = document.querySelector("#jsonlInput");
+    const outputEl = document.querySelector("#outputText");
+    const tableWrap = document.querySelector("#tableWrap");
+    const errorsPanel = document.querySelector("#errorsPanel");
+    const errorList = document.querySelector("#errorList");
+    const errorsHead = document.querySelector("#errorsHead");
+    const statusEl = document.querySelector("#status");
+    const fileInput = document.querySelector("#fileInput");
+    const dropZone = document.querySelector("#dropZone");
+    const skipBlankEl = document.querySelector("#skipBlank");
+    const autoParseEl = document.querySelector("#autoParse");
+    const filterInput = document.querySelector("#filterInput");
+    const modeButtons = Array.from(document.querySelectorAll("[data-mode]"));
+
+    let parseState = {
+      records: [],
+      errors: [],
+      lineCount: 0,
+      bytes: 0,
+      mode: "pretty"
+    };
+
+    let parseTimer = null;
+
+    const sampleJSONL = [
+      '{"event":"workspace","workspace_id":"workspace-20260619-233005-be53c6","created_at":"2026-06-19T23:30:05+08:00"}',
+      '{"event":"state","step":1,"agent":"planner","status":"running","task":"research"}',
+      '{"event":"message","role":"assistant","content":"Saved research/2026-world-cup-research-2.md","ok":true}'
+    ].join("\n");
+
+    function setStatus(text, kind = "") {
+      statusEl.textContent = text;
+      statusEl.className = `status ${kind}`.trim();
+    }
+
+    function byteLength(text) {
+      return new TextEncoder().encode(text).length;
+    }
+
+    function truncate(text, length = 260) {
+      if (text.length <= length) return text;
+      return `${text.slice(0, length)}...`;
+    }
+
+    function parseJSONL() {
+      const text = inputEl.value;
+      const lines = text.length ? text.split(/\r\n|\n|\r/) : [];
+      const records = [];
+      const errors = [];
+
+      lines.forEach((line, index) => {
+        if (skipBlankEl.checked && line.trim() === "") return;
+
+        try {
+          records.push({
+            line: index + 1,
+            value: JSON.parse(line)
+          });
+        } catch (error) {
+          errors.push({
+            line: index + 1,
+            message: error.message,
+            source: line
+          });
+        }
+      });
+
+      parseState = {
+        ...parseState,
+        records,
+        errors,
+        lineCount: lines.length,
+        bytes: byteLength(text)
+      };
+
+      render();
+    }
+
+    function filteredRecords() {
+      const keyword = filterInput.value.trim().toLowerCase();
+      if (!keyword) return parseState.records;
+
+      return parseState.records.filter((record) => {
+        const body = JSON.stringify(record.value).toLowerCase();
+        return body.includes(keyword) || String(record.line).includes(keyword);
+      });
+    }
+
+    function getOutputText() {
+      const records = filteredRecords();
+      const values = records.map((record) => record.value);
+
+      if (parseState.mode === "array") {
+        return JSON.stringify(values, null, 2);
+      }
+
+      if (parseState.mode === "jsonl") {
+        return values.map((value) => JSON.stringify(value)).join("\n");
+      }
+
+      return records.map((record) => {
+        const value = JSON.stringify(record.value, null, 2);
+        return `// line ${record.line}\n${value}`;
+      }).join("\n\n");
+    }
+
+    function flatten(value, prefix = "", output = {}) {
+      if (Array.isArray(value)) {
+        output[prefix || "value"] = JSON.stringify(value);
+        return output;
+      }
+
+      if (!value || typeof value !== "object") {
+        output[prefix || "value"] = value;
+        return output;
+      }
+
+      Object.entries(value).forEach(([key, child]) => {
+        const nextKey = prefix ? `${prefix}.${key}` : key;
+        if (child && typeof child === "object" && !Array.isArray(child)) {
+          flatten(child, nextKey, output);
+        } else {
+          output[nextKey] = Array.isArray(child) ? JSON.stringify(child) : child;
+        }
+      });
+
+      return output;
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function renderTable(records) {
+      if (!records.length) {
+        tableWrap.innerHTML = '<div class="empty">没有可展示的记录</div>';
+        return;
+      }
+
+      const flattened = records.slice(0, 500).map((record) => ({
+        line: record.line,
+        data: flatten(record.value)
+      }));
+
+      const counts = new Map();
+      flattened.forEach((row) => {
+        Object.keys(row.data).forEach((key) => {
+          counts.set(key, (counts.get(key) || 0) + 1);
+        });
+      });
+
+      const headers = Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 12)
+        .map(([key]) => key);
+
+      const headerHTML = ['<th class="line-no">line</th>']
+        .concat(headers.map((key) => `<th>${escapeHTML(key)}</th>`))
+        .join("");
+
+      const rowsHTML = flattened.map((row) => {
+        const cells = [`<td class="line-no">${row.line}</td>`]
+          .concat(headers.map((key) => `<td>${escapeHTML(formatCell(row.data[key]))}</td>`))
+          .join("");
+        return `<tr>${cells}</tr>`;
+      }).join("");
+
+      const note = records.length > 500
+        ? '<div class="status warn" style="padding:10px 14px;">表格只预览前 500 条过滤后的记录。</div>'
+        : "";
+
+      tableWrap.innerHTML = `${note}<table><thead><tr>${headerHTML}</tr></thead><tbody>${rowsHTML}</tbody></table>`;
+    }
+
+    function formatCell(value) {
+      if (value === undefined) return "";
+      if (typeof value === "string") return truncate(value, 180);
+      if (typeof value === "number" || typeof value === "boolean" || value === null) return value;
+      return truncate(JSON.stringify(value), 180);
+    }
+
+    function renderErrors() {
+      if (!parseState.errors.length) {
+        errorsPanel.classList.remove("show");
+        errorList.innerHTML = "";
+        return;
+      }
+
+      errorsPanel.classList.add("show");
+      errorsHead.textContent = `错误行：${parseState.errors.length}`;
+      errorList.innerHTML = parseState.errors.map((error) => `
+        <div class="error-item">
+          <div class="error-line">第 ${error.line} 行</div>
+          <div class="error-msg">${escapeHTML(error.message)}</div>
+          <div class="error-src">${escapeHTML(truncate(error.source || "(空行)", 360))}</div>
+        </div>
+      `).join("");
+    }
+
+    function render() {
+      const records = filteredRecords();
+      document.querySelector("#lineCount").textContent = parseState.lineCount;
+      document.querySelector("#validCount").textContent = parseState.records.length;
+      document.querySelector("#errorCount").textContent = parseState.errors.length;
+      document.querySelector("#byteCount").textContent = parseState.bytes;
+
+      renderErrors();
+
+      if (parseState.mode === "table") {
+        outputEl.style.display = "none";
+        tableWrap.style.display = "block";
+        renderTable(records);
+      } else {
+        tableWrap.style.display = "none";
+        outputEl.style.display = "block";
+        outputEl.value = getOutputText();
+      }
+
+      if (!inputEl.value.trim()) {
+        setStatus("等待输入 JSONL 内容。");
+      } else if (parseState.errors.length) {
+        setStatus(`已解析 ${parseState.records.length} 条，有 ${parseState.errors.length} 行需要修正。`, "bad");
+      } else {
+        const filtered = records.length === parseState.records.length ? "" : `，当前过滤后 ${records.length} 条`;
+        setStatus(`解析成功：${parseState.records.length} 条记录${filtered}。`, "ok");
+      }
+    }
+
+    function scheduleParse() {
+      if (!autoParseEl.checked) return;
+      clearTimeout(parseTimer);
+      parseTimer = setTimeout(parseJSONL, 180);
+    }
+
+    async function copyOutput() {
+      const text = parseState.mode === "table" ? getOutputText() : outputEl.value;
+      if (!text) {
+        setStatus("没有可复制的输出。", "warn");
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(text);
+        setStatus("已复制当前输出。", "ok");
+      } catch {
+        outputEl.style.display = "block";
+        tableWrap.style.display = "none";
+        outputEl.focus();
+        outputEl.select();
+        setStatus("浏览器阻止了剪贴板访问，已选中输出内容。", "warn");
+      }
+    }
+
+    function downloadOutput() {
+      const text = getOutputText();
+      if (!text) {
+        setStatus("没有可下载的输出。", "warn");
+        return;
+      }
+
+      const extension = parseState.mode === "jsonl" ? "jsonl" : "json";
+      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      const link = document.createElement("a");
+      const href = URL.createObjectURL(blob);
+      link.href = href;
+      link.download = `jsonl-output.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 0);
+      setStatus("已生成下载文件。", "ok");
+    }
+
+    function readFile(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        inputEl.value = String(reader.result || "");
+        parseJSONL();
+        setStatus(`已读取文件：${file.name}`, "ok");
+      };
+      reader.onerror = () => setStatus(`读取失败：${file.name}`, "bad");
+      reader.readAsText(file, "utf-8");
+    }
+
+    document.querySelector("#parseNow").addEventListener("click", parseJSONL);
+    document.querySelector("#clearInput").addEventListener("click", () => {
+      inputEl.value = "";
+      filterInput.value = "";
+      parseJSONL();
+    });
+    document.querySelector("#loadSample").addEventListener("click", () => {
+      inputEl.value = sampleJSONL;
+      parseJSONL();
+    });
+    document.querySelector("#pickFile").addEventListener("click", () => fileInput.click());
+    document.querySelector("#copyOutput").addEventListener("click", copyOutput);
+    document.querySelector("#downloadOutput").addEventListener("click", downloadOutput);
+    document.querySelector("#unwrapEscaped").addEventListener("click", () => {
+      inputEl.value = inputEl.value.replace(/\\r\\n|\\n|\\r/g, "\n");
+      parseJSONL();
+    });
+
+    inputEl.addEventListener("input", scheduleParse);
+    skipBlankEl.addEventListener("change", parseJSONL);
+    autoParseEl.addEventListener("change", () => {
+      if (autoParseEl.checked) parseJSONL();
+    });
+    filterInput.addEventListener("input", render);
+    fileInput.addEventListener("change", () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (file) readFile(file);
+      fileInput.value = "";
+    });
+
+    modeButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        parseState.mode = button.dataset.mode;
+        modeButtons.forEach((item) => {
+          item.setAttribute("aria-pressed", String(item === button));
+        });
+        render();
+      });
+    });
+
+    ["dragenter", "dragover"].forEach((eventName) => {
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropZone.classList.add("dragging");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((eventName) => {
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        if (eventName === "drop") {
+          const file = event.dataTransfer.files && event.dataTransfer.files[0];
+          if (file) readFile(file);
+        }
+        dropZone.classList.remove("dragging");
+      });
+    });
+
+    parseJSONL();
+  </script>
+</body>
+</html>

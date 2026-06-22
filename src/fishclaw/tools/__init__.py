@@ -3,6 +3,7 @@
 from fishclaw.tools.harness import (
     build_code_tools,
     build_search_tool,
+    build_search_tools,
     display_path,
     file_read,
     file_write,
@@ -19,6 +20,7 @@ from fishclaw.tools.harness import (
 __all__ = [
     "build_code_tools",
     "build_search_tool",
+    "build_search_tools",
     "display_path",
     "file_read",
     "file_write",

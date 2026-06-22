@@ -2,5 +2,6 @@
 FISHCLAW_IMPROVEMENTS.txt
 PROJECT_OVERVIEW.md
 .fishclaw
+.pytest_tmp/
 src/fishclaw/__pycache__/
 src/fishclaw.egg-info/
